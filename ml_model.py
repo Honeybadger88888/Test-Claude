@@ -14,11 +14,13 @@ from typing import Any
 import numpy as np
 
 try:
-    from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.model_selection import TimeSeriesSplit
 except Exception:  # pragma: no cover - import guard for minimal environments
     HistGradientBoostingClassifier = None
     CalibratedClassifierCV = None
+    TimeSeriesSplit = None
 
 
 @dataclass
@@ -46,8 +48,11 @@ class MLProbabilityModel:
         self._calibrated_model = None
         self._trained_rows = 0
         self._available = (
-            HistGradientBoostingClassifier is not None and CalibratedClassifierCV is not None
+            HistGradientBoostingClassifier is not None
+            and CalibratedClassifierCV is not None
+            and TimeSeriesSplit is not None
         )
+        self._last_train_info: dict[str, Any] = {"status": "not_trained"}
         self._feature_names = [
             "obi_2",
             "obi_5",
@@ -75,6 +80,12 @@ class MLProbabilityModel:
         n_rows = len(y)
         if n_rows < self.min_train_samples:
             return {"trained": False, "reason": "insufficient_samples", "rows": n_rows}
+        if len(np.unique(y)) < 2:
+            return {
+                "trained": False,
+                "reason": "insufficient_class_variance",
+                "rows": n_rows,
+            }
 
         if self._trained_rows and n_rows < self._trained_rows + self.retrain_every_rows:
             return {"trained": False, "reason": "retrain_threshold_not_met", "rows": n_rows}
@@ -85,14 +96,37 @@ class MLProbabilityModel:
             max_iter=200,
             random_state=42,
         )
-        base_model.fit(X, y)
+        n_splits = 3 if n_rows >= 120 else 2
+        cv = TimeSeriesSplit(n_splits=n_splits)
+        calibration_method = "isotonic"
 
-        calibrated = CalibratedClassifierCV(base_model, method="isotonic", cv=3)
-        calibrated.fit(X, y)
+        try:
+            calibrated = CalibratedClassifierCV(
+                base_model,
+                method="isotonic",
+                cv=cv,
+            )
+            calibrated.fit(X, y)
+        except Exception:
+            # Fallback for edge cases where isotonic split calibration cannot fit.
+            calibration_method = "sigmoid"
+            calibrated = CalibratedClassifierCV(
+                base_model,
+                method="sigmoid",
+                cv=cv,
+            )
+            calibrated.fit(X, y)
 
         self._calibrated_model = calibrated
         self._trained_rows = n_rows
-        return {"trained": True, "rows": n_rows}
+        self._last_train_info = {
+            "status": "trained",
+            "rows": n_rows,
+            "calibration_method": calibration_method,
+            "cv": "time_series_split",
+            "n_splits": n_splits,
+        }
+        return {"trained": True, **self._last_train_info}
 
     def predict(self, features: dict[str, Any]) -> MLPrediction:
         """Predict P(Up) from current feature row."""
@@ -118,7 +152,10 @@ class MLProbabilityModel:
             probability_up=max(0.0, min(1.0, prob)),
             model_ready=True,
             mode="active",
-            details={"feature_names": self._feature_names},
+            details={
+                "feature_names": self._feature_names,
+                "training": self._last_train_info,
+            },
         )
 
     def blend_probability(self, baseline_p: float, ml_p: float | None) -> float:

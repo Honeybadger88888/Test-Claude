@@ -94,6 +94,8 @@ export function Dashboard() {
 
   const depthRows = snapshot?.depth?.rows ?? [];
   const bestDepth = snapshot?.depth?.best_depth;
+  const bestMethod = snapshot?.depth?.best_method;
+  const bestReason = snapshot?.depth?.best_reason;
   const pendingTrades = useMemo(
     () => tradeHistory.filter((event) => event.status === "OPEN").length,
     [tradeHistory]
@@ -210,6 +212,14 @@ export function Dashboard() {
             <strong>{bestDepth ? `${Math.round(bestDepth * 100)}%` : "warming"}</strong>
           </div>
           <div className="stat-line">
+            <span>Selection Mode</span>
+            <strong>{bestMethod ?? "warming"}</strong>
+          </div>
+          <div className="stat-line">
+            <span>Best Reason</span>
+            <strong>{bestReason ?? "collecting samples"}</strong>
+          </div>
+          <div className="stat-line">
             <span>Bankroll</span>
             <strong>{fmtCurrency(snapshot?.risk?.bankroll)}</strong>
           </div>
@@ -279,8 +289,11 @@ export function Dashboard() {
             <tr>
               <th>Time</th>
               <th>OBI 2%</th>
+              <th>OBD 2%</th>
               <th>OBI 5%</th>
+              <th>OBD 5%</th>
               <th>OBI 10%</th>
+              <th>OBD 10%</th>
               <th>Actual</th>
             </tr>
           </thead>
@@ -289,8 +302,11 @@ export function Dashboard() {
               <tr key={`${row.timestamp}-${idx}`}>
                 <td className="mono">{row.timestamp}</td>
                 <td>{fmtNumber(row.obi?.["2"])}</td>
+                <td>{fmtNumber((row.obd ?? row.obi)?.["2"])}</td>
                 <td>{fmtNumber(row.obi?.["5"])}</td>
+                <td>{fmtNumber((row.obd ?? row.obi)?.["5"])}</td>
                 <td>{fmtNumber(row.obi?.["10"])}</td>
+                <td>{fmtNumber((row.obd ?? row.obi)?.["10"])}</td>
                 <td>{row.actual || "pending"}</td>
               </tr>
             ))}

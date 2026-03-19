@@ -7,7 +7,7 @@ compares prediction accuracy, and finds optimal thresholds from history.
 import csv
 import os
 from datetime import datetime, timezone
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -44,6 +44,8 @@ class DepthAnalyzer:
         self.stats: dict[float, DepthStats] = {d: DepthStats() for d in self.depth_levels}
         self.best_depth = None
         self.best_threshold = None
+        self.best_selection_method = "none"
+        self.best_selection_reason = "no_outcomes_yet"
         self._csv_path = os.path.join(config.TRADE_LOG_DIR, "depth_analysis.csv")
         self._csv_initialized = False
 
@@ -113,9 +115,7 @@ class DepthAnalyzer:
 
         self._write_csv_row(record)
 
-        # Auto-select best depth after enough data
-        if len(self.history) >= config.DEPTH_CALIBRATION_WINDOWS:
-            self._update_best_depth()
+        self._update_best_depth()
 
     def get_best_obi(self, obi_values):
         """Get the OBI value from the best-performing depth level.
@@ -228,6 +228,8 @@ class DepthAnalyzer:
             "rows": depth_rows,
             "best_depth": self.best_depth,
             "best_threshold": self.best_threshold,
+            "best_method": self.best_selection_method,
+            "best_reason": self.best_selection_reason,
         }
 
     def get_history_rows(self, limit=200):
@@ -239,6 +241,11 @@ class DepthAnalyzer:
                 "timestamp": self._format_timestamp(rec.timestamp),
                 "raw_timestamp": rec.timestamp,
                 "obi": {
+                    "2": rec.obi.get(0.02, 0.0),
+                    "5": rec.obi.get(0.05, 0.0),
+                    "10": rec.obi.get(0.10, 0.0),
+                },
+                "obd": {
                     "2": rec.obi.get(0.02, 0.0),
                     "5": rec.obi.get(0.05, 0.0),
                     "10": rec.obi.get(0.10, 0.0),
@@ -333,29 +340,87 @@ class DepthAnalyzer:
                         if pred == rec.actual_outcome:
                             self.stats[depth].correct += 1
 
-        if len(self.history) >= config.DEPTH_CALIBRATION_WINDOWS:
-            self._update_best_depth()
+        self._update_best_depth()
         return rows
 
     def _update_best_depth(self):
-        """Select the best depth level based on threshold-filtered accuracy."""
-        results = self.find_optimal_thresholds()
-        if not results:
+        """Select best depth with threshold mode or running-accuracy fallback."""
+        if not self.history:
+            self.best_depth = None
+            self.best_threshold = None
+            self.best_selection_method = "none"
+            self.best_selection_reason = "no_history"
             return
 
-        best_depth = None
-        best_acc = 0.0
-        best_thresh = None
+        # Preferred: threshold-filtered selection once enough windows are available.
+        if len(self.history) >= config.DEPTH_CALIBRATION_WINDOWS:
+            results = self.find_optimal_thresholds()
+            if results:
+                candidates = []
+                for depth, info in results.items():
+                    if info["sample_size"] < 5:
+                        continue
+                    candidates.append(
+                        {
+                            "depth": depth,
+                            "accuracy": info["accuracy"],
+                            "sample_size": info["sample_size"],
+                            "threshold": info["threshold"],
+                        }
+                    )
+                if candidates:
+                    best = sorted(
+                        candidates,
+                        key=lambda row: (
+                            -row["accuracy"],
+                            -row["sample_size"],
+                            abs(row["depth"] - 0.05),
+                        ),
+                    )[0]
+                    self.best_depth = best["depth"]
+                    self.best_threshold = best["threshold"]
+                    self.best_selection_method = "threshold_filtered"
+                    self.best_selection_reason = (
+                        f"acc={best['accuracy']:.1%}, n={best['sample_size']}, "
+                        f"th={best['threshold']:.4f}"
+                    )
+                    return
 
-        for depth, info in results.items():
-            if info["sample_size"] >= 10 and info["accuracy"] > best_acc:
-                best_acc = info["accuracy"]
-                best_depth = depth
-                best_thresh = info["threshold"]
+        # Fallback: choose by running accuracy and sample size.
+        running = []
+        for depth in self.depth_levels:
+            stats = self.stats[depth]
+            if stats.total == 0:
+                continue
+            running.append(
+                {
+                    "depth": depth,
+                    "accuracy": stats.accuracy,
+                    "sample_size": stats.total,
+                }
+            )
 
-        if best_depth is not None:
-            self.best_depth = best_depth
-            self.best_threshold = best_thresh
+        if running:
+            best = sorted(
+                running,
+                key=lambda row: (
+                    -row["accuracy"],
+                    -row["sample_size"],
+                    abs(row["depth"] - 0.05),
+                ),
+            )[0]
+            self.best_depth = best["depth"]
+            self.best_threshold = None
+            self.best_selection_method = "running_accuracy"
+            self.best_selection_reason = (
+                f"acc={best['accuracy']:.1%}, n={best['sample_size']}"
+            )
+            return
+
+        self.best_depth = None
+        self.best_threshold = None
+        self.best_selection_method = "none"
+        self.best_selection_reason = "no_labeled_predictions"
 
     @staticmethod
     def _safe_float(value):

@@ -75,6 +75,8 @@ export interface DashboardSnapshot {
     rows: DepthRow[];
     best_depth?: number | null;
     best_threshold?: number | null;
+    best_method?: string;
+    best_reason?: string;
   };
   model: {
     volatility?: number;
