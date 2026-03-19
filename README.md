@@ -65,6 +65,9 @@ Optional API base override:
 NEXT_PUBLIC_API_BASE=http://localhost:8000 npm run dev
 ```
 
+By default, the frontend uses a same-origin proxy path (`/backend`) that forwards to
+`http://127.0.0.1:8000`, which avoids browser cross-origin issues on forwarded URLs.
+
 ---
 
 ## 4) CLI-only engine mode (no UI)
