@@ -126,6 +126,15 @@ class TradingEngine:
         market_p = self._get_market_probability(market, now)
 
         order_book = self.feed.get_order_book()
+        data_ready = bool(
+            feed_connected
+            and current_price is not None
+            and order_book.get("bids")
+            and order_book.get("asks")
+        )
+        data_error = None if data_ready else (
+            "No Binance live data (connection unavailable or order book empty)"
+        )
         obi_values = self.analyzer.calc_all_obis(order_book)
         spread, mid_price = self._calc_book_metrics(order_book)
 
@@ -174,8 +183,18 @@ class TradingEngine:
             else 0.0
         )
 
+        if data_error:
+            should_open = False
+            direction = "None"
+            edge_val = 0.0
+            can_trade = False
+            risk_reason = data_error
+            position_size = 0.0
+
         training_status = None
         if (
+            data_ready
+            and
             not self._window_prediction_recorded
             and 5 < seconds_left <= config.DECISION_SECS_BEFORE_CLOSE
         ):
@@ -201,6 +220,7 @@ class TradingEngine:
 
         if (
             self.auto_trade
+            and data_ready
             and self._window_prediction_recorded
             and self._pending_trade is None
             and 5 < seconds_left <= config.DECISION_SECS_BEFORE_CLOSE
@@ -289,6 +309,8 @@ class TradingEngine:
             },
             "errors": [],
         }
+        if data_error:
+            snapshot["errors"] = [data_error]
         self._last_snapshot = snapshot
         self.state.update_snapshot(snapshot)
 

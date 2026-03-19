@@ -45,6 +45,15 @@ class FakeFeed:
         return self.candles if n is None else self.candles[-n:]
 
 
+class DisconnectedFeed(FakeFeed):
+    def __init__(self):
+        super().__init__()
+        self.connected = False
+        self.price = None
+        self.book = {"bids": [], "asks": []}
+        self.candles = []
+
+
 class FakePolymarket:
     def __init__(self):
         self.window_ts = 1000
@@ -93,9 +102,9 @@ class StubMLModel:
         return {"trained": False}
 
 
-def _make_engine(poly=None, trader=None, ml_model=None):
+def _make_engine(poly=None, trader=None, ml_model=None, feed=None):
     state = EngineState(max_depth_history=50, max_trade_history=50)
-    feed = FakeFeed()
+    feed = feed or FakeFeed()
     engine = TradingEngine(
         state=state,
         auto_trade=True,
@@ -174,3 +183,14 @@ def test_ml_only_mode_uses_ml_probability(monkeypatch):
     snap = engine.state.snapshot()
     assert snap["ml"]["decision_source"] == "ml_only"
     assert snap["signal"]["direction"] == "Down"
+
+
+def test_no_trade_when_binance_feed_unavailable(monkeypatch):
+    engine, state, _ = _make_engine(feed=DisconnectedFeed())
+    monkeypatch.setattr("trading_engine.calc_up_probability", lambda **_: 0.9)
+
+    engine.run_tick()
+    snap = state.snapshot()
+    assert snap["signal"]["should_trade"] is False
+    assert "No Binance live data" in snap["risk"]["reason"]
+    assert state.trade_history(limit=10) == []

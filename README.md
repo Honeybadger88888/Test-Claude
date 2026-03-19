@@ -43,7 +43,9 @@ APIs:
 - `GET /api/history/performance?limit=400`
 - `GET /api/stream` (SSE)
 
-> Note: if Binance WebSocket is blocked by region (HTTP 451), the feed auto-falls back to Coinbase REST for live price/book updates.
+> Note: this runtime is now **Binance-only**. If Binance WebSocket is blocked by region/network
+> (HTTP 451), the engine will not trade and will report a live-data error until run from a
+> Binance-eligible environment.
 
 ---
 
