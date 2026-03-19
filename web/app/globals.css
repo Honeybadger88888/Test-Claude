@@ -113,6 +113,16 @@ th {
   font-size: 0.84rem;
 }
 
+.trade-link {
+  color: #93c5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.trade-link:hover {
+  color: #bfdbfe;
+}
+
 .chart-wrap {
   border: 1px solid var(--border);
   border-radius: 10px;

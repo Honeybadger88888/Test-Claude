@@ -409,6 +409,11 @@ class TradingEngine:
 
     @staticmethod
     def _trade_to_event(trade: Trade, status: str):
+        market_url = (
+            f"https://polymarket.com/event/{trade.window_slug}"
+            if trade.window_slug
+            else None
+        )
         return {
             "status": status,
             "trade_id": trade.trade_id,
@@ -419,6 +424,7 @@ class TradingEngine:
             "my_p": trade.my_p,
             "edge": trade.edge,
             "window_slug": trade.window_slug,
+            "market_url": market_url,
             "entry_price": trade.entry_price,
             "exit_price": trade.exit_price,
             "result": trade.result,

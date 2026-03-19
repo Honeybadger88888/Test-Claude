@@ -498,6 +498,7 @@ export function Dashboard() {
           <thead>
             <tr>
               <th>Time</th>
+              <th>Market</th>
               <th>Status</th>
               <th>Dir</th>
               <th>Size</th>
@@ -509,6 +510,15 @@ export function Dashboard() {
             {tradeHistory.slice(-20).reverse().map((trade) => (
               <tr key={`${trade.trade_id}-${trade.status}-${trade.timestamp}`}>
                 <td className="mono">{trade.timestamp}</td>
+                <td>
+                  {trade.market_url ? (
+                    <a href={trade.market_url} target="_blank" rel="noreferrer" className="trade-link">
+                      {trade.window_slug ?? "View"}
+                    </a>
+                  ) : (
+                    trade.window_slug ?? "—"
+                  )}
+                </td>
                 <td>{trade.status}</td>
                 <td>{trade.direction}</td>
                 <td>{fmtCurrency(trade.size)}</td>

@@ -31,6 +31,8 @@ export interface TradeEvent {
   trade_id: number;
   timestamp: string;
   direction: string;
+  window_slug?: string;
+  market_url?: string | null;
   size: number;
   market_p: number;
   my_p: number;

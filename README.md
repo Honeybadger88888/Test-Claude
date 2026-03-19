@@ -111,6 +111,7 @@ npm run build
 - Side-by-side depth rows (2/5/10%)
 - Historical OBI trend chart (2/5/10)
 - Historical OBI/OBD rows by depth with outcomes
+- Historical trades include hyperlink to the traded Polymarket 5-minute event
 
 ## Optional ML trade-control mode
 

@@ -119,6 +119,7 @@ def test_auto_trade_opens_when_signal_and_risk_pass(monkeypatch):
     assert trades, "Expected an OPEN trade event"
     assert trades[-1]["status"] == "OPEN"
     assert trades[-1]["direction"] == "Up"
+    assert trades[-1]["market_url"].endswith(trades[-1]["window_slug"])
 
 
 def test_no_trade_when_risk_limit_blocks(monkeypatch):
