@@ -209,18 +209,24 @@ class DepthAnalyzer:
     def get_depth_comparison(self):
         """Return structured side-by-side comparison payload."""
         latest = self.history[-1] if self.history else None
+        threshold_results = self.find_optimal_thresholds()
         depth_rows = []
         for depth in self.depth_levels:
             key = str(int(depth * 100))
             stats = self.stats[depth]
+            threshold_info = threshold_results.get(depth, {})
             depth_rows.append(
                 {
                     "depth_pct": depth,
                     "depth_key": key,
                     "obi": latest.obi.get(depth, 0.0) if latest else 0.0,
+                    "obd": latest.obi.get(depth, 0.0) if latest else 0.0,
                     "prediction": latest.predictions.get(depth) if latest else None,
                     "accuracy": stats.accuracy,
                     "sample_size": stats.total,
+                    "threshold_suggestion": threshold_info.get("threshold"),
+                    "threshold_accuracy": threshold_info.get("accuracy"),
+                    "threshold_sample_size": threshold_info.get("sample_size"),
                 }
             )
 

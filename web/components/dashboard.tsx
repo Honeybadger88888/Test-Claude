@@ -306,6 +306,8 @@ export function Dashboard() {
               <th>Prediction</th>
               <th>Accuracy</th>
               <th>Samples</th>
+              <th>Threshold</th>
+              <th>Thr Acc</th>
             </tr>
           </thead>
           <tbody>
@@ -313,10 +315,12 @@ export function Dashboard() {
               <tr key={row.depth_key} className={bestDepth === row.depth_pct ? "best-row" : ""}>
                 <td>{Math.round(row.depth_pct * 100)}%</td>
                 <td>{fmtNumber(row.obi)}</td>
-                <td>{fmtNumber(row.obi)}</td>
+                <td>{fmtNumber(row.obd ?? row.obi)}</td>
                 <td>{row.prediction ?? "None"}</td>
                 <td>{fmtPercent(row.accuracy)}</td>
                 <td>{row.sample_size}</td>
+                <td>{fmtNumber(row.threshold_suggestion, 4)}</td>
+                <td>{fmtPercent(row.threshold_accuracy)}</td>
               </tr>
             ))}
           </tbody>

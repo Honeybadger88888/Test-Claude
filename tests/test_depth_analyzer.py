@@ -42,3 +42,22 @@ def test_history_rows_include_obd_alias(analyzer):
     assert rows[0]["obi"]["2"] == rows[0]["obd"]["2"]
     assert rows[0]["obi"]["5"] == rows[0]["obd"]["5"]
     assert rows[0]["obi"]["10"] == rows[0]["obd"]["10"]
+
+
+def test_threshold_suggestions_appear_after_enough_history(analyzer):
+    for i in range(30):
+        direction = 1 if i % 2 == 0 else -1
+        outcome = "Up" if direction == 1 else "Down"
+        obi_values = {
+            0.02: direction * (0.2 + (i * 0.01)),
+            0.05: direction * (0.15 + (i * 0.005)),
+            0.10: direction * (0.08 + (i * 0.002)),
+        }
+        analyzer.record_prediction(1000.0 + i, obi_values)
+        analyzer.record_outcome(outcome)
+
+    comparison = analyzer.get_depth_comparison()
+    assert comparison["rows"], "Expected depth comparison rows"
+    for row in comparison["rows"]:
+        assert "threshold_suggestion" in row
+        assert "threshold_accuracy" in row

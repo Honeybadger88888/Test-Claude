@@ -4,9 +4,13 @@ export interface DepthRow {
   depth_pct: number;
   depth_key: DepthKey;
   obi: number;
+  obd?: number;
   prediction: "Up" | "Down" | null;
   accuracy: number;
   sample_size: number;
+  threshold_suggestion?: number;
+  threshold_accuracy?: number;
+  threshold_sample_size?: number;
 }
 
 export interface DepthHistoryRow {
