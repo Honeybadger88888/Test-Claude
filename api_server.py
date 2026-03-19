@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,16 @@ from engine_state import EngineState
 from trading_engine import TradingEngine
 
 
+class _NoopEngine:
+    """No-op engine used for read-only test app instances."""
+
+    def start(self):
+        return None
+
+    def stop(self):
+        return None
+
+
 def create_app(
     *,
     state: EngineState | None = None,
@@ -20,9 +31,29 @@ def create_app(
     start_engine_on_startup: bool = True,
 ) -> FastAPI:
     """Create FastAPI app for runtime and tests."""
-    app = FastAPI(title="Paper Trading Live API", version="1.0.0")
     shared_state = state or EngineState()
-    shared_engine = engine or TradingEngine(state=shared_state, auto_trade=True)
+    if engine is not None:
+        shared_engine = engine
+    elif start_engine_on_startup:
+        shared_engine = TradingEngine(state=shared_state, auto_trade=True)
+    else:
+        shared_engine = _NoopEngine()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if start_engine_on_startup:
+            shared_engine.start()
+        try:
+            yield
+        finally:
+            if start_engine_on_startup:
+                shared_engine.stop()
+
+    app = FastAPI(
+        title="Paper Trading Live API",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
 
     app.add_middleware(
         CORSMiddleware,
@@ -34,17 +65,6 @@ def create_app(
 
     app.state.engine = shared_engine
     app.state.state = shared_state
-    app.state.start_engine_on_startup = start_engine_on_startup
-
-    @app.on_event("startup")
-    async def _startup():
-        if app.state.start_engine_on_startup:
-            app.state.engine.start()
-
-    @app.on_event("shutdown")
-    async def _shutdown():
-        if app.state.start_engine_on_startup:
-            app.state.engine.stop()
 
     @app.get("/")
     async def root():

@@ -5,6 +5,7 @@ import threading
 import time
 from collections import deque
 
+import requests
 import websocket
 
 import config
@@ -22,6 +23,9 @@ class PriceFeed:
         self._ws_thread = None
         self._running = False
         self._connected = threading.Event()
+        self._fallback_to_rest = False
+        self._rest_session = requests.Session()
+        self._active_candle = None
 
     def start(self):
         """Start the WebSocket connection in a background thread."""
@@ -34,6 +38,7 @@ class PriceFeed:
         self._running = False
         if self._ws:
             self._ws.close()
+        self._rest_session.close()
 
     def wait_for_connection(self, timeout=30):
         """Block until connected or timeout."""
@@ -72,6 +77,10 @@ class PriceFeed:
         """WebSocket connection loop with auto-reconnect."""
         backoff = 1
         while self._running:
+            if self._fallback_to_rest:
+                self._run_coinbase_rest_fallback()
+                return
+
             try:
                 streams = "/".join(config.BINANCE_WS_STREAMS)
                 url = f"{config.BINANCE_WS_URL}/{streams}"
@@ -88,6 +97,8 @@ class PriceFeed:
 
             if self._running:
                 self._connected.clear()
+                if self._fallback_to_rest:
+                    continue
                 print(f"[PRICE_FEED] Reconnecting in {backoff}s...")
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 30)
@@ -98,6 +109,10 @@ class PriceFeed:
 
     def _on_error(self, ws, error):
         print(f"[PRICE_FEED] WebSocket error: {error}")
+        err = str(error).lower()
+        if "restricted location" in err or "451" in err:
+            print("[PRICE_FEED] Binance restricted, switching to Coinbase REST fallback.")
+            self._fallback_to_rest = True
 
     def _on_close(self, ws, close_status_code, close_msg):
         print(f"[PRICE_FEED] WebSocket closed: {close_status_code} {close_msg}")
@@ -150,3 +165,58 @@ class PriceFeed:
             self._order_book["asks"] = sorted(asks, key=lambda x: x[0])
             if bids and not self._current_price:
                 self._current_price = bids[0][0]
+
+    def _run_coinbase_rest_fallback(self):
+        """Fallback polling loop using Coinbase REST endpoints."""
+        print("[PRICE_FEED] Running Coinbase REST fallback poller.")
+        while self._running:
+            try:
+                ticker_resp = self._rest_session.get(config.COINBASE_TICKER_URL, timeout=8)
+                book_resp = self._rest_session.get(config.COINBASE_BOOK_URL, timeout=8)
+                ticker_resp.raise_for_status()
+                book_resp.raise_for_status()
+
+                ticker = ticker_resp.json()
+                book = book_resp.json()
+
+                price = float(ticker.get("price", 0) or 0)
+                bids = [[float(p), float(q)] for p, q, *_ in book.get("bids", [])[:20]]
+                asks = [[float(p), float(q)] for p, q, *_ in book.get("asks", [])[:20]]
+
+                with self._lock:
+                    if price > 0:
+                        self._current_price = price
+                    self._order_book["bids"] = sorted(bids, key=lambda x: -x[0])
+                    self._order_book["asks"] = sorted(asks, key=lambda x: x[0])
+
+                if price > 0:
+                    self._update_fallback_candles(price)
+                    self._connected.set()
+            except Exception as e:
+                print(f"[PRICE_FEED] Coinbase fallback poll error: {e}")
+                self._connected.clear()
+
+            time.sleep(config.FALLBACK_POLL_INTERVAL_SEC)
+
+    def _update_fallback_candles(self, price):
+        """Aggregate 1-second ticks into 1-minute synthetic candles."""
+        now = int(time.time())
+        minute_ts = now - (now % 60)
+
+        if self._active_candle is None or self._active_candle["timestamp"] != minute_ts:
+            if self._active_candle is not None:
+                with self._lock:
+                    self._candles.append(dict(self._active_candle))
+            self._active_candle = {
+                "open": price,
+                "high": price,
+                "low": price,
+                "close": price,
+                "volume": 0.0,
+                "timestamp": float(minute_ts),
+            }
+            return
+
+        self._active_candle["high"] = max(self._active_candle["high"], price)
+        self._active_candle["low"] = min(self._active_candle["low"], price)
+        self._active_candle["close"] = price
