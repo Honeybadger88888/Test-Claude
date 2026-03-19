@@ -61,3 +61,15 @@ def test_threshold_suggestions_appear_after_enough_history(analyzer):
     for row in comparison["rows"]:
         assert "threshold_suggestion" in row
         assert "threshold_accuracy" in row
+
+
+def test_load_history_from_csv_normalizes_timestamp(analyzer):
+    analyzer.record_prediction(1700000000.0, {0.02: 0.2, 0.05: 0.1, 0.10: 0.05})
+    analyzer.record_outcome("Up")
+
+    loaded = analyzer.load_history_from_csv(limit=10)
+    assert loaded
+    first = loaded[0]
+    assert isinstance(first["timestamp"], str)
+    assert first["timestamp"].endswith("+00:00")
+    assert "raw_timestamp" in first

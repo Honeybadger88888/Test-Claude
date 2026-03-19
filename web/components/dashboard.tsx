@@ -27,6 +27,20 @@ function fmtPercent(value?: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function buildPolyline(values: number[], width = 720, height = 180): string {
+  if (values.length === 0) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = Math.max(0.000001, max - min);
+  return values
+    .map((value, idx) => {
+      const x = (idx / Math.max(values.length - 1, 1)) * width;
+      const y = height - ((value - min) / span) * height;
+      return `${x},${y}`;
+    })
+    .join(" ");
+}
+
 export function Dashboard() {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [depthHistory, setDepthHistory] = useState<DepthHistoryRow[]>([]);
@@ -103,6 +117,10 @@ export function Dashboard() {
     () => tradeHistory.filter((event) => event.status === "OPEN").length,
     [tradeHistory]
   );
+  const chartRows = useMemo(() => depthHistory.slice(-60), [depthHistory]);
+  const poly2 = useMemo(() => buildPolyline(chartRows.map((r) => r.obi?.["2"] ?? 0)), [chartRows]);
+  const poly5 = useMemo(() => buildPolyline(chartRows.map((r) => r.obi?.["5"] ?? 0)), [chartRows]);
+  const poly10 = useMemo(() => buildPolyline(chartRows.map((r) => r.obi?.["10"] ?? 0)), [chartRows]);
 
   return (
     <main className="container">
@@ -333,6 +351,29 @@ export function Dashboard() {
             ))}
           </tbody>
         </table>
+      </section>
+
+      <section className="card">
+        <h2>Historical OBI Trend Chart (Last 60 Windows)</h2>
+        <div className="chart-wrap">
+          <svg
+            viewBox="0 0 720 180"
+            width="100%"
+            height="220"
+            role="img"
+            aria-label="OBI trend lines for 2 5 and 10 percent depth"
+          >
+            <line x1="0" y1="90" x2="720" y2="90" className="chart-axis" />
+            {poly2 ? <polyline points={poly2} className="chart-line chart-line-2" /> : null}
+            {poly5 ? <polyline points={poly5} className="chart-line chart-line-5" /> : null}
+            {poly10 ? <polyline points={poly10} className="chart-line chart-line-10" /> : null}
+          </svg>
+        </div>
+        <div className="chart-legend">
+          <span><i className="legend-swatch legend-2" />2% depth</span>
+          <span><i className="legend-swatch legend-5" />5% depth</span>
+          <span><i className="legend-swatch legend-10" />10% depth</span>
+        </div>
       </section>
 
       <section className="card table-card">

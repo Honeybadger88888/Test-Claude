@@ -103,6 +103,7 @@ npm run build
 - Signal direction, edge, position size, and risk gate status
 - Auto trade events (OPEN + RESOLVED)
 - Side-by-side depth rows (2/5/10%)
+- Historical OBI trend chart (2/5/10)
 - Historical OBI/OBD rows by depth with outcomes
 
 ## Optional ML trade-control mode

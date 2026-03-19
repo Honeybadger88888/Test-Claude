@@ -283,7 +283,8 @@ class DepthAnalyzer:
                 for row in reader:
                     parsed.append(
                         {
-                            "timestamp": self._safe_float(row.get("timestamp", 0.0)),
+                            "timestamp": self._format_timestamp(row.get("timestamp", 0.0)),
+                            "raw_timestamp": self._safe_float(row.get("timestamp", 0.0)),
                             "obi": {
                                 "2": self._safe_float(row.get("obi_2pct", 0.0)),
                                 "5": self._safe_float(row.get("obi_5pct", 0.0)),
@@ -323,7 +324,7 @@ class DepthAnalyzer:
 
         for row in rows:
             rec = DepthRecord(
-                timestamp=row["timestamp"],
+                timestamp=self._safe_float(row.get("raw_timestamp", row["timestamp"])),
                 obi={
                     0.02: row["obi"].get("2", 0.0),
                     0.05: row["obi"].get("5", 0.0),
