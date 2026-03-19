@@ -1,4 +1,9 @@
-import { DashboardSnapshot, DepthHistoryRow, TradeEvent } from "@/types/dashboard";
+import {
+  DashboardSnapshot,
+  DepthHistoryRow,
+  PerformancePoint,
+  TradeEvent,
+} from "@/types/dashboard";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/backend";
 
@@ -33,6 +38,17 @@ export async function fetchTradeHistory(limit = 120): Promise<TradeEvent[]> {
   });
   if (!response.ok) {
     throw new Error(`Trade history fetch failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  return payload.rows ?? [];
+}
+
+export async function fetchPerformanceHistory(limit = 400): Promise<PerformancePoint[]> {
+  const response = await fetch(`${API_BASE}/api/history/performance?limit=${limit}`, {
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`Performance history fetch failed: ${response.status}`);
   }
   const payload = await response.json();
   return payload.rows ?? [];

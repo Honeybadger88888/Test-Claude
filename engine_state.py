@@ -94,6 +94,39 @@ class EngineState:
             rows = list(self._trade_history)[-max(limit, 1):]
             return copy.deepcopy(rows)
 
+    def performance_history(self, limit: int = 200) -> list[dict[str, Any]]:
+        """Build running PnL/win-rate curve from resolved trade events."""
+        with self._lock:
+            events = list(self._trade_history)
+
+        resolved = [event for event in events if event.get("status") == "RESOLVED"]
+        points = []
+        wins = 0
+        total = 0
+        cumulative_pnl = 0.0
+
+        for event in resolved:
+            total += 1
+            if event.get("result") == "Win":
+                wins += 1
+            pnl = float(event.get("pnl", 0.0) or 0.0)
+            cumulative_pnl += pnl
+
+            points.append(
+                {
+                    "trade_id": event.get("trade_id"),
+                    "timestamp": event.get("timestamp"),
+                    "pnl": pnl,
+                    "cumulative_pnl": cumulative_pnl,
+                    "bankroll_after": float(event.get("bankroll_after", 0.0) or 0.0),
+                    "win_rate": wins / total if total else 0.0,
+                    "wins": wins,
+                    "total_trades": total,
+                }
+            )
+
+        return points[-max(limit, 1):]
+
     @staticmethod
     def _empty_snapshot() -> dict[str, Any]:
         now_iso = datetime.now(timezone.utc).isoformat()

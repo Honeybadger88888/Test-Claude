@@ -94,6 +94,10 @@ def create_app(
     async def trade_history(limit: int = Query(default=200, ge=1, le=2000)):
         return {"rows": app.state.state.trade_history(limit=limit)}
 
+    @app.get("/api/history/performance")
+    async def performance_history(limit: int = Query(default=400, ge=1, le=5000)):
+        return {"rows": app.state.state.performance_history(limit=limit)}
+
     @app.get("/api/stream")
     async def stream(request: Request):
         async def event_generator():

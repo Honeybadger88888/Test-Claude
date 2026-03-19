@@ -40,6 +40,17 @@ export interface TradeEvent {
   bankroll_after?: number;
 }
 
+export interface PerformancePoint {
+  trade_id?: number;
+  timestamp?: string;
+  pnl: number;
+  cumulative_pnl: number;
+  bankroll_after: number;
+  win_rate: number;
+  wins: number;
+  total_trades: number;
+}
+
 export interface DashboardSnapshot {
   timestamp: string;
   status?: {

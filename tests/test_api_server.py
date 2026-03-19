@@ -42,6 +42,16 @@ def _seed_state():
     )
     state.add_depth_record({"window_ts": 123, "obi": {"2": 0.1, "5": 0.2, "10": 0.3}, "actual": "Up"})
     state.add_trade_event({"trade_id": 1, "status": "OPEN"})
+    state.add_trade_event(
+        {
+            "trade_id": 1,
+            "status": "RESOLVED",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "result": "Win",
+            "pnl": 120.5,
+            "bankroll_after": 10120.5,
+        }
+    )
     return state
 
 
@@ -81,3 +91,16 @@ def test_depth_history_endpoint_returns_rows():
     assert isinstance(rows, list)
     assert len(rows) == 1
     assert rows[0]["obi"]["5"] == 0.2
+
+
+def test_performance_history_endpoint_returns_curve_points():
+    app = create_app(state=_seed_state(), start_engine_on_startup=False)
+    client = TestClient(app)
+
+    resp = client.get("/api/history/performance?limit=10")
+    assert resp.status_code == 200
+    rows = resp.json()["rows"]
+    assert isinstance(rows, list)
+    assert len(rows) == 1
+    assert rows[0]["cumulative_pnl"] == 120.5
+    assert rows[0]["win_rate"] == 1.0

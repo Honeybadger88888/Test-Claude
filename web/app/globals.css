@@ -143,6 +143,14 @@ th {
   stroke: #f59e0b;
 }
 
+.chart-line-pnl {
+  stroke: #22c55e;
+}
+
+.chart-line-winrate {
+  stroke: #f43f5e;
+}
+
 .chart-legend {
   margin-top: 0.6rem;
   display: flex;

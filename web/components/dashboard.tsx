@@ -2,9 +2,20 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
-import { fetchDepthHistory, fetchSnapshot, fetchTradeHistory, getApiBase } from "@/lib/api";
+import {
+  fetchDepthHistory,
+  fetchPerformanceHistory,
+  fetchSnapshot,
+  fetchTradeHistory,
+  getApiBase,
+} from "@/lib/api";
 import { openSnapshotStream } from "@/lib/sse";
-import { DashboardSnapshot, DepthHistoryRow, TradeEvent } from "@/types/dashboard";
+import {
+  DashboardSnapshot,
+  DepthHistoryRow,
+  PerformancePoint,
+  TradeEvent,
+} from "@/types/dashboard";
 
 function fmtNumber(value?: number | null, digits = 3): string {
   if (value === undefined || value === null || Number.isNaN(value)) {
@@ -45,6 +56,7 @@ export function Dashboard() {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [depthHistory, setDepthHistory] = useState<DepthHistoryRow[]>([]);
   const [tradeHistory, setTradeHistory] = useState<TradeEvent[]>([]);
+  const [performanceHistory, setPerformanceHistory] = useState<PerformancePoint[]>([]);
   const [streamMessage, setStreamMessage] = useState<string>("Connecting...");
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -54,15 +66,17 @@ export function Dashboard() {
 
     async function hydrate() {
       try {
-        const [snap, depthRows, tradeRows] = await Promise.all([
+        const [snap, depthRows, tradeRows, perfRows] = await Promise.all([
           fetchSnapshot(),
           fetchDepthHistory(240),
           fetchTradeHistory(120),
+          fetchPerformanceHistory(400),
         ]);
         if (cancelled) return;
         setSnapshot(snap);
         setDepthHistory(depthRows);
         setTradeHistory(tradeRows);
+        setPerformanceHistory(perfRows);
         setStreamMessage("Live");
       } catch (error) {
         if (!cancelled) {
@@ -87,13 +101,15 @@ export function Dashboard() {
 
     const historyRefresh = setInterval(async () => {
       try {
-        const [depthRows, tradeRows] = await Promise.all([
+        const [depthRows, tradeRows, perfRows] = await Promise.all([
           fetchDepthHistory(240),
           fetchTradeHistory(120),
+          fetchPerformanceHistory(400),
         ]);
         if (cancelled) return;
         setDepthHistory(depthRows);
         setTradeHistory(tradeRows);
+        setPerformanceHistory(perfRows);
       } catch {
         // Best-effort refresh for historical sections.
       }
@@ -121,6 +137,16 @@ export function Dashboard() {
   const poly2 = useMemo(() => buildPolyline(chartRows.map((r) => r.obi?.["2"] ?? 0)), [chartRows]);
   const poly5 = useMemo(() => buildPolyline(chartRows.map((r) => r.obi?.["5"] ?? 0)), [chartRows]);
   const poly10 = useMemo(() => buildPolyline(chartRows.map((r) => r.obi?.["10"] ?? 0)), [chartRows]);
+  const perfRows = useMemo(() => performanceHistory.slice(-120), [performanceHistory]);
+  const pnlCurve = useMemo(
+    () => buildPolyline(perfRows.map((row) => row.cumulative_pnl)),
+    [perfRows]
+  );
+  const winRateCurve = useMemo(
+    () => buildPolyline(perfRows.map((row) => row.win_rate)),
+    [perfRows]
+  );
+  const latestPerf = perfRows[perfRows.length - 1];
 
   return (
     <main className="container">
@@ -189,6 +215,64 @@ export function Dashboard() {
           <div className="stat-line">
             <span>Size</span>
             <strong>{fmtCurrency(snapshot?.signal?.position_size)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="status-grid">
+        <div className="card">
+          <h2>Performance (Live)</h2>
+          <div className="stat-line">
+            <span>Live Win Rate</span>
+            <strong>{fmtPercent(snapshot?.stats?.win_rate)}</strong>
+          </div>
+          <div className="stat-line">
+            <span>Wins / Trades</span>
+            <strong>
+              {snapshot?.stats?.wins ?? 0} / {snapshot?.stats?.total_trades ?? 0}
+            </strong>
+          </div>
+          <div className="stat-line">
+            <span>Cumulative PnL</span>
+            <strong>{fmtCurrency(latestPerf?.cumulative_pnl ?? snapshot?.stats?.total_pnl)}</strong>
+          </div>
+          <div className="stat-line">
+            <span>Current Bankroll</span>
+            <strong>{fmtCurrency(latestPerf?.bankroll_after ?? snapshot?.risk?.bankroll)}</strong>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2>PnL Curve (Resolved Trades)</h2>
+          <div className="chart-wrap">
+            <svg
+              viewBox="0 0 720 180"
+              width="100%"
+              height="220"
+              role="img"
+              aria-label="Cumulative PnL curve over resolved trades"
+            >
+              <line x1="0" y1="90" x2="720" y2="90" className="chart-axis" />
+              {pnlCurve ? <polyline points={pnlCurve} className="chart-line chart-line-pnl" /> : null}
+            </svg>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2>Win Rate Curve</h2>
+          <div className="chart-wrap">
+            <svg
+              viewBox="0 0 720 180"
+              width="100%"
+              height="220"
+              role="img"
+              aria-label="Running win rate curve over resolved trades"
+            >
+              <line x1="0" y1="90" x2="720" y2="90" className="chart-axis" />
+              {winRateCurve ? (
+                <polyline points={winRateCurve} className="chart-line chart-line-winrate" />
+              ) : null}
+            </svg>
           </div>
         </div>
       </section>
