@@ -2,6 +2,7 @@
 
 import os
 import sys
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -71,23 +72,28 @@ class FakePolymarket:
 
 
 class StubMLModel:
-    def predict(self, features):
-        class Pred:
-            probability_up = None
-            model_ready = False
-            mode = "shadow"
-            details = {}
+    def __init__(self, probability_up=None, ready=False):
+        self._probability_up = probability_up
+        self._ready = ready
 
-        return Pred()
+    def predict(self, features):
+        return SimpleNamespace(
+            probability_up=self._probability_up,
+            model_ready=self._ready,
+            mode="active" if self._ready else "shadow",
+            details={},
+        )
 
     def blend_probability(self, baseline_p, ml_p):
-        return baseline_p
+        if ml_p is None:
+            return baseline_p
+        return (baseline_p + ml_p) / 2
 
     def maybe_retrain_from_depth_history(self, depth_history):
         return {"trained": False}
 
 
-def _make_engine(poly=None, trader=None):
+def _make_engine(poly=None, trader=None, ml_model=None):
     state = EngineState(max_depth_history=50, max_trade_history=50)
     feed = FakeFeed()
     engine = TradingEngine(
@@ -98,7 +104,7 @@ def _make_engine(poly=None, trader=None):
         polymarket_client=poly or FakePolymarket(),
         depth_analyzer=DepthAnalyzer(),
         paper_trader=trader or PaperTrader(),
-        ml_model=StubMLModel(),
+        ml_model=ml_model or StubMLModel(),
     )
     return engine, state, feed
 
@@ -143,3 +149,27 @@ def test_trade_resolves_on_window_rollover(monkeypatch):
 
     trades = state.trade_history(limit=10)
     assert any(t["status"] == "RESOLVED" for t in trades)
+
+
+def test_consensus_mode_blocks_when_models_disagree(monkeypatch):
+    monkeypatch.setattr(config, "ML_TRADE_CONTROL_MODE", "consensus")
+    ml = StubMLModel(probability_up=0.10, ready=True)  # strong Down
+    engine, _, _ = _make_engine(ml_model=ml)
+    monkeypatch.setattr("trading_engine.calc_up_probability", lambda **_: 0.90)  # strong Up
+
+    engine.run_tick()
+    snap = engine.state.snapshot()
+    assert snap["ml"]["decision_source"] == "consensus_blocked"
+    assert snap["signal"]["should_trade"] is False
+
+
+def test_ml_only_mode_uses_ml_probability(monkeypatch):
+    monkeypatch.setattr(config, "ML_TRADE_CONTROL_MODE", "ml_only")
+    ml = StubMLModel(probability_up=0.10, ready=True)  # implies Down vs market 0.4
+    engine, _, _ = _make_engine(ml_model=ml)
+    monkeypatch.setattr("trading_engine.calc_up_probability", lambda **_: 0.90)  # baseline Up
+
+    engine.run_tick()
+    snap = engine.state.snapshot()
+    assert snap["ml"]["decision_source"] == "ml_only"
+    assert snap["signal"]["direction"] == "Down"

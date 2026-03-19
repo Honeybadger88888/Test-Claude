@@ -93,6 +93,13 @@ export interface DashboardSnapshot {
     ready: boolean;
     probability_up?: number | null;
     blended_probability_up?: number;
+    trade_control_mode?: string;
+    decision_source?: string;
+    consensus?: {
+      agreed?: boolean;
+      baseline_direction?: string;
+      ml_direction?: string;
+    };
     details?: {
       reason?: string;
       feature_names?: string[];

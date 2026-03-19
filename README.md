@@ -104,3 +104,12 @@ npm run build
 - Auto trade events (OPEN + RESOLVED)
 - Side-by-side depth rows (2/5/10%)
 - Historical OBI/OBD rows by depth with outcomes
+
+## Optional ML trade-control mode
+
+Set `ML_TRADE_CONTROL_MODE` in `config.py`:
+
+- `baseline` → existing analytical model only
+- `blended` → weighted baseline+ML probability (default)
+- `ml_only` → ML probability only
+- `consensus` → only trades when baseline and ML agree on direction

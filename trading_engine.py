@@ -13,7 +13,7 @@ from depth_analyzer import DepthAnalyzer, DepthRecord
 from edge import calc_edge, calc_position_size, should_trade
 from engine_state import EngineState
 from logger import TradeLogger
-from ml_model import MLProbabilityModel
+from ml_model import MLPrediction, MLProbabilityModel
 from model import calc_short_term_drift, calc_up_probability, estimate_volatility
 from paper_trader import PaperTrader, Trade
 from polymarket import PolymarketClient
@@ -159,9 +159,10 @@ class TradingEngine:
             "mid_price": mid_price,
         }
         ml_pred = self.ml_model.predict(ml_features)
-        final_p = self.ml_model.blend_probability(
+        final_p, ml_decision = self._select_probability_for_trading(
             baseline_p=baseline_p,
-            ml_p=ml_pred.probability_up,
+            market_p=market_p,
+            ml_prediction=ml_pred,
         )
 
         edge_val = calc_edge(final_p, market_p)
@@ -265,6 +266,9 @@ class TradingEngine:
                 "ready": ml_pred.model_ready,
                 "probability_up": ml_pred.probability_up,
                 "blended_probability_up": final_p,
+                "trade_control_mode": ml_decision["trade_control_mode"],
+                "decision_source": ml_decision["decision_source"],
+                "consensus": ml_decision.get("consensus"),
                 "details": ml_pred.details,
                 "training": training_status,
             },
@@ -420,4 +424,58 @@ class TradingEngine:
             "result": trade.result,
             "pnl": trade.pnl,
             "bankroll_after": trade.bankroll_after,
+        }
+
+    def _select_probability_for_trading(
+        self,
+        baseline_p: float,
+        market_p: float,
+        ml_prediction: MLPrediction,
+    ):
+        """Choose effective trade probability using configured ML mode."""
+        mode = (config.ML_TRADE_CONTROL_MODE or "blended").lower()
+        ml_p = ml_prediction.probability_up
+
+        if mode == "baseline" or ml_p is None or not ml_prediction.model_ready:
+            return baseline_p, {
+                "trade_control_mode": mode,
+                "decision_source": "baseline",
+            }
+
+        if mode == "ml_only":
+            return ml_p, {
+                "trade_control_mode": mode,
+                "decision_source": "ml_only",
+            }
+
+        if mode == "consensus":
+            baseline_trade, baseline_dir, _ = should_trade(baseline_p, market_p)
+            ml_trade, ml_dir, _ = should_trade(ml_p, market_p)
+            agreed = baseline_trade and ml_trade and baseline_dir == ml_dir
+            if agreed:
+                final_p = self.ml_model.blend_probability(baseline_p=baseline_p, ml_p=ml_p)
+                return final_p, {
+                    "trade_control_mode": mode,
+                    "decision_source": "consensus_blend",
+                    "consensus": {
+                        "agreed": True,
+                        "baseline_direction": baseline_dir,
+                        "ml_direction": ml_dir,
+                    },
+                }
+            return market_p, {
+                "trade_control_mode": mode,
+                "decision_source": "consensus_blocked",
+                "consensus": {
+                    "agreed": False,
+                    "baseline_direction": baseline_dir if baseline_trade else "None",
+                    "ml_direction": ml_dir if ml_trade else "None",
+                },
+            }
+
+        # default: blended
+        final_p = self.ml_model.blend_probability(baseline_p=baseline_p, ml_p=ml_p)
+        return final_p, {
+            "trade_control_mode": "blended",
+            "decision_source": "blended",
         }

@@ -187,6 +187,14 @@ export function Dashboard() {
             <strong>{snapshot?.ml?.mode ?? "shadow"}</strong>
           </div>
           <div className="stat-line">
+            <span>Trade Control</span>
+            <strong>{snapshot?.ml?.trade_control_mode ?? "blended"}</strong>
+          </div>
+          <div className="stat-line">
+            <span>Decision Source</span>
+            <strong>{snapshot?.ml?.decision_source ?? "baseline"}</strong>
+          </div>
+          <div className="stat-line">
             <span>ML P(Up)</span>
             <strong>{fmtPercent(snapshot?.ml?.probability_up ?? undefined)}</strong>
           </div>

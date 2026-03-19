@@ -16,6 +16,10 @@ DEPTH_LEVELS = [0.02, 0.05, 0.10]  # 2%, 5%, 10% from mid price
 DEPTH_CALIBRATION_WINDOWS = 50     # Windows before auto-selecting best depth
 OBI_DRIFT_WEIGHT = 0.3             # How much OBI shifts the drift term
 
+# ML control
+# Options: "baseline", "blended", "ml_only", "consensus"
+ML_TRADE_CONTROL_MODE = "blended"
+
 # Binance WebSocket (public, no auth)
 BINANCE_WS_URL = "wss://stream.binance.com:9443/ws"
 BINANCE_WS_STREAMS = ["btcusdt@kline_1m", "btcusdt@depth20@100ms"]
