@@ -6,6 +6,7 @@ compares prediction accuracy, and finds optimal thresholds from history.
 
 import csv
 import os
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -205,6 +206,137 @@ class DepthAnalyzer:
 
         return "DEPTH ANALYSIS | " + " | ".join(parts) + selected
 
+    def get_depth_comparison(self):
+        """Return structured side-by-side comparison payload."""
+        latest = self.history[-1] if self.history else None
+        depth_rows = []
+        for depth in self.depth_levels:
+            key = str(int(depth * 100))
+            stats = self.stats[depth]
+            depth_rows.append(
+                {
+                    "depth_pct": depth,
+                    "depth_key": key,
+                    "obi": latest.obi.get(depth, 0.0) if latest else 0.0,
+                    "prediction": latest.predictions.get(depth) if latest else None,
+                    "accuracy": stats.accuracy,
+                    "sample_size": stats.total,
+                }
+            )
+
+        return {
+            "rows": depth_rows,
+            "best_depth": self.best_depth,
+            "best_threshold": self.best_threshold,
+        }
+
+    def get_history_rows(self, limit=200):
+        """Get API-friendly historical OBI rows by depth."""
+        rows = []
+        hist = self.history[-max(1, limit):]
+        for rec in hist:
+            row = {
+                "timestamp": self._format_timestamp(rec.timestamp),
+                "raw_timestamp": rec.timestamp,
+                "obi": {
+                    "2": rec.obi.get(0.02, 0.0),
+                    "5": rec.obi.get(0.05, 0.0),
+                    "10": rec.obi.get(0.10, 0.0),
+                },
+                "predictions": {
+                    "2": rec.predictions.get(0.02),
+                    "5": rec.predictions.get(0.05),
+                    "10": rec.predictions.get(0.10),
+                },
+                "actual": rec.actual_outcome or "",
+                "accuracy": {
+                    "2": self.stats[0.02].accuracy,
+                    "5": self.stats[0.05].accuracy,
+                    "10": self.stats[0.10].accuracy,
+                },
+            }
+            rows.append(row)
+        return rows
+
+    def load_history_from_csv(self, limit=500):
+        """Warm-load history from depth_analysis.csv if present."""
+        if not os.path.exists(self._csv_path):
+            return []
+
+        parsed = []
+        try:
+            with open(self._csv_path, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    parsed.append(
+                        {
+                            "timestamp": self._safe_float(row.get("timestamp", 0.0)),
+                            "obi": {
+                                "2": self._safe_float(row.get("obi_2pct", 0.0)),
+                                "5": self._safe_float(row.get("obi_5pct", 0.0)),
+                                "10": self._safe_float(row.get("obi_10pct", 0.0)),
+                            },
+                            "obd": {
+                                "2": self._safe_float(row.get("obi_2pct", 0.0)),
+                                "5": self._safe_float(row.get("obi_5pct", 0.0)),
+                                "10": self._safe_float(row.get("obi_10pct", 0.0)),
+                            },
+                            "predictions": {
+                                "2": row.get("pred_2pct") or None,
+                                "5": row.get("pred_5pct") or None,
+                                "10": row.get("pred_10pct") or None,
+                            },
+                            "actual": row.get("actual", ""),
+                            "accuracy": {
+                                "2": self._safe_float(row.get("acc_2pct", 0.0)),
+                                "5": self._safe_float(row.get("acc_5pct", 0.0)),
+                                "10": self._safe_float(row.get("acc_10pct", 0.0)),
+                            },
+                        }
+                    )
+        except (OSError, csv.Error):
+            return []
+
+        return parsed[-max(1, limit):]
+
+    def warm_start_from_csv(self, limit=500):
+        """Hydrate analyzer history/stats from persisted CSV rows."""
+        rows = self.load_history_from_csv(limit=limit)
+        if not rows:
+            return []
+
+        self.history.clear()
+        self.stats = {d: DepthStats() for d in self.depth_levels}
+
+        for row in rows:
+            rec = DepthRecord(
+                timestamp=row["timestamp"],
+                obi={
+                    0.02: row["obi"].get("2", 0.0),
+                    0.05: row["obi"].get("5", 0.0),
+                    0.10: row["obi"].get("10", 0.0),
+                },
+                predictions={
+                    0.02: row["predictions"].get("2"),
+                    0.05: row["predictions"].get("5"),
+                    0.10: row["predictions"].get("10"),
+                },
+                actual_outcome=row.get("actual", ""),
+            )
+            self.history.append(rec)
+
+            if rec.actual_outcome in {"Up", "Down"}:
+                for depth in self.depth_levels:
+                    pred = rec.predictions.get(depth)
+                    if pred is not None:
+                        self.stats[depth].total += 1
+                        if pred == rec.actual_outcome:
+                            self.stats[depth].correct += 1
+
+        if len(self.history) >= config.DEPTH_CALIBRATION_WINDOWS:
+            self._update_best_depth()
+        return rows
+
     def _update_best_depth(self):
         """Select the best depth level based on threshold-filtered accuracy."""
         results = self.find_optimal_thresholds()
@@ -224,6 +356,20 @@ class DepthAnalyzer:
         if best_depth is not None:
             self.best_depth = best_depth
             self.best_threshold = best_thresh
+
+    @staticmethod
+    def _safe_float(value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def _format_timestamp(ts):
+        try:
+            return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+        except (TypeError, ValueError, OSError):
+            return datetime.now(timezone.utc).isoformat()
 
     def _write_csv_row(self, record):
         """Append a row to the depth analysis CSV."""
