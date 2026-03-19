@@ -89,7 +89,27 @@ export interface DashboardSnapshot {
     ready: boolean;
     probability_up?: number | null;
     blended_probability_up?: number;
-    details?: Record<string, unknown>;
+    details?: {
+      reason?: string;
+      feature_names?: string[];
+      training?: {
+        status?: string;
+        rows?: number;
+        calibration_method?: string;
+        cv?: string;
+        n_splits?: number;
+        performance?: {
+          folds?: number;
+          log_loss_mean?: number;
+          brier_mean?: number;
+          accuracy_mean?: number;
+        };
+        feature_importance?: {
+          sample_count?: number;
+          top_features?: Array<{ name: string; score: number }>;
+        };
+      };
+    };
   };
   signal: {
     direction: string;

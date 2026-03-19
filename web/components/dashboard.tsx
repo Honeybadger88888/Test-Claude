@@ -96,6 +96,9 @@ export function Dashboard() {
   const bestDepth = snapshot?.depth?.best_depth;
   const bestMethod = snapshot?.depth?.best_method;
   const bestReason = snapshot?.depth?.best_reason;
+  const mlTraining = snapshot?.ml?.details?.training;
+  const mlPerf = mlTraining?.performance;
+  const mlTopFeatures = mlTraining?.feature_importance?.top_features ?? [];
   const pendingTrades = useMemo(
     () => tradeHistory.filter((event) => event.status === "OPEN").length,
     [tradeHistory]
@@ -195,6 +198,18 @@ export function Dashboard() {
             <span>Volatility</span>
             <strong>{fmtNumber(snapshot?.model?.volatility, 4)}</strong>
           </div>
+          <div className="stat-line">
+            <span>ML Train Rows</span>
+            <strong>{mlTraining?.rows ?? "warming"}</strong>
+          </div>
+          <div className="stat-line">
+            <span>ML Accuracy (WF)</span>
+            <strong>{fmtPercent(mlPerf?.accuracy_mean)}</strong>
+          </div>
+          <div className="stat-line">
+            <span>ML Brier (WF)</span>
+            <strong>{fmtNumber(mlPerf?.brier_mean, 4)}</strong>
+          </div>
         </div>
 
         <div className="card">
@@ -252,6 +267,32 @@ export function Dashboard() {
             <strong>{fmtCurrency(snapshot?.stats?.total_pnl)}</strong>
           </div>
         </div>
+      </section>
+
+      <section className="card table-card">
+        <h2>ML Feature Importance Snapshot</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mlTopFeatures.length === 0 ? (
+              <tr>
+                <td colSpan={2}>Not available yet (ML still warming / training).</td>
+              </tr>
+            ) : (
+              mlTopFeatures.map((feature) => (
+                <tr key={feature.name}>
+                  <td>{feature.name}</td>
+                  <td>{fmtNumber(feature.score, 6)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </section>
 
       <section className="card table-card">

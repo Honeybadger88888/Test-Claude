@@ -16,10 +16,16 @@ import numpy as np
 try:
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.inspection import permutation_importance
+    from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
     from sklearn.model_selection import TimeSeriesSplit
 except Exception:  # pragma: no cover - import guard for minimal environments
     HistGradientBoostingClassifier = None
     CalibratedClassifierCV = None
+    permutation_importance = None
+    accuracy_score = None
+    brier_score_loss = None
+    log_loss = None
     TimeSeriesSplit = None
 
 
@@ -50,6 +56,10 @@ class MLProbabilityModel:
         self._available = (
             HistGradientBoostingClassifier is not None
             and CalibratedClassifierCV is not None
+            and permutation_importance is not None
+            and accuracy_score is not None
+            and brier_score_loss is not None
+            and log_loss is not None
             and TimeSeriesSplit is not None
         )
         self._last_train_info: dict[str, Any] = {"status": "not_trained"}
@@ -96,9 +106,10 @@ class MLProbabilityModel:
             max_iter=200,
             random_state=42,
         )
-        n_splits = 3 if n_rows >= 120 else 2
+        n_splits = max(2, min(5, n_rows // 30))
         cv = TimeSeriesSplit(n_splits=n_splits)
         calibration_method = "isotonic"
+        performance = self._walk_forward_metrics(X, y, n_splits=n_splits)
 
         try:
             calibrated = CalibratedClassifierCV(
@@ -110,12 +121,23 @@ class MLProbabilityModel:
         except Exception:
             # Fallback for edge cases where isotonic split calibration cannot fit.
             calibration_method = "sigmoid"
-            calibrated = CalibratedClassifierCV(
-                base_model,
-                method="sigmoid",
-                cv=cv,
-            )
-            calibrated.fit(X, y)
+            try:
+                calibrated = CalibratedClassifierCV(
+                    base_model,
+                    method="sigmoid",
+                    cv=cv,
+                )
+                calibrated.fit(X, y)
+            except Exception as exc:
+                self._last_train_info = {
+                    "status": "failed",
+                    "rows": n_rows,
+                    "reason": f"calibration_failed:{type(exc).__name__}",
+                }
+                return {"trained": False, **self._last_train_info}
+
+        base_model.fit(X, y)
+        importance = self._compute_feature_importance(base_model, X, y)
 
         self._calibrated_model = calibrated
         self._trained_rows = n_rows
@@ -125,6 +147,8 @@ class MLProbabilityModel:
             "calibration_method": calibration_method,
             "cv": "time_series_split",
             "n_splits": n_splits,
+            "performance": performance,
+            "feature_importance": importance,
         }
         return {"trained": True, **self._last_train_info}
 
@@ -194,3 +218,69 @@ class MLProbabilityModel:
 
     def _feature_row(self, values: dict[str, Any]) -> list[float]:
         return [float(values.get(name, 0.0) or 0.0) for name in self._feature_names]
+
+    def _walk_forward_metrics(self, X, y, n_splits: int):
+        """Compute walk-forward metrics to track ML quality."""
+        splitter = TimeSeriesSplit(n_splits=n_splits)
+        fold_metrics = []
+        for train_idx, test_idx in splitter.split(X):
+            if len(np.unique(y[train_idx])) < 2 or len(np.unique(y[test_idx])) < 2:
+                continue
+            model = HistGradientBoostingClassifier(
+                max_depth=4,
+                learning_rate=0.05,
+                max_iter=200,
+                random_state=42,
+            )
+            model.fit(X[train_idx], y[train_idx])
+            probs = model.predict_proba(X[test_idx])[:, 1]
+            preds = (probs >= 0.5).astype(int)
+            fold_metrics.append(
+                {
+                    "log_loss": float(log_loss(y[test_idx], probs, labels=[0, 1])),
+                    "brier": float(brier_score_loss(y[test_idx], probs)),
+                    "accuracy": float(accuracy_score(y[test_idx], preds)),
+                }
+            )
+
+        if not fold_metrics:
+            return {"folds": 0}
+
+        return {
+            "folds": len(fold_metrics),
+            "log_loss_mean": float(np.mean([m["log_loss"] for m in fold_metrics])),
+            "brier_mean": float(np.mean([m["brier"] for m in fold_metrics])),
+            "accuracy_mean": float(np.mean([m["accuracy"] for m in fold_metrics])),
+        }
+
+    def _compute_feature_importance(self, model, X, y):
+        """Compute permutation feature importance snapshot."""
+        sample_count = min(len(y), 200)
+        if sample_count < 30:
+            return {"top_features": [], "sample_count": sample_count}
+
+        X_sub = X[-sample_count:]
+        y_sub = y[-sample_count:]
+        if len(np.unique(y_sub)) < 2:
+            return {"top_features": [], "sample_count": sample_count}
+
+        imp = permutation_importance(
+            model,
+            X_sub,
+            y_sub,
+            n_repeats=5,
+            random_state=42,
+            scoring="neg_log_loss",
+        )
+        ranked = sorted(
+            zip(self._feature_names, imp.importances_mean.tolist()),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+        return {
+            "sample_count": sample_count,
+            "top_features": [
+                {"name": name, "score": float(score)}
+                for name, score in ranked[:5]
+            ],
+        }
